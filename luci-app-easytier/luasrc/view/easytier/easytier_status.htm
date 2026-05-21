@@ -373,6 +373,12 @@ protocol = "http://"
 	color: var(--text-primary);
 }
 
+.et-action-hint {
+	font-size: 12px;
+	color: var(--text-secondary);
+	margin-top: 4px;
+}
+
 .et-action-controls {
 	display: flex;
 	align-items: center;
@@ -455,10 +461,13 @@ input:checked + .slider:before {
 <div class="et-quick-actions">
 	<div class="et-action-row">
 		<div class="et-quick-title"><%=translate("Quick Actions")%></div>
-		<button class="et-restart-btn" id="restartBtn" onclick="restartService(); return false;"><%=translate("Restart")%></button>
+		<button class="et-restart-btn" id="restartBtn" onclick="restartService(); return false;"><%=translate("Restart Local Core")%></button>
 	</div>
 	<div class="et-action-row">
-		<div class="et-action-label">EasyTier Core</div>
+		<div>
+			<div class="et-action-label"><%=translate("EasyTier Core")%></div>
+			<div class="et-action-hint" id="localCoreHint" style="display:none;"><%=translate("Disabled while Web Console Managed Core is enabled")%></div>
+		</div>
 		<div class="et-action-controls">
 			<label class="switch">
 				<input type="checkbox" id="coreSwitch" disabled>
@@ -466,8 +475,28 @@ input:checked + .slider:before {
 			</label>
 		</div>
 	</div>
+	<div class="et-action-row" id="webclientCoreAction" style="display:none;">
+		<div class="et-action-label"><%=translate("Web Console Managed Core")%></div>
+		<div class="et-action-controls">
+			<button class="et-restart-btn" id="restartWebclientCoreBtn" onclick="restartWebclientCore(); return false;"><%=translate("Restart")%></button>
+			<label class="switch">
+				<input type="checkbox" id="webclientCoreSwitch" disabled>
+				<span class="slider"></span>
+			</label>
+		</div>
+	</div>
+	<div class="et-action-row" id="agentAction" style="display:none;">
+		<div class="et-action-label"><%=translate("EasyTier Agent")%></div>
+		<div class="et-action-controls">
+			<button class="et-restart-btn" id="restartAgentBtn" onclick="restartAgent(); return false;"><%=translate("Restart")%></button>
+			<label class="switch">
+				<input type="checkbox" id="agentSwitch" disabled>
+				<span class="slider"></span>
+			</label>
+		</div>
+	</div>
 	<div class="et-action-row">
-		<div class="et-action-label">EasyTier Web</div>
+		<div class="et-action-label"><%=translate("EasyTier Web")%></div>
 		<div class="et-action-controls">
 			<label class="switch">
 				<input type="checkbox" id="webSwitch" disabled>
@@ -601,7 +630,7 @@ function compareVersion(current, latest) {
 	return { match: c === l, latest: latest };
 }
 
-function renderService(name, data, isRunning) {
+function renderService(name, data, isRunning, serviceType) {
 	var html = '<div class="et-service-section' + (isRunning ? '' : ' service-stopped') + '">';
 	html += '<div class="et-service-header">';
 	html += '<div class="et-service-title">' + name + '</div>';
@@ -640,7 +669,7 @@ function renderService(name, data, isRunning) {
 		html += '<div class="et-metric-value">' + (data.uptime || '-') + '</div>';
 		html += '</div></div>';
 		
-		var serviceType = name.indexOf('Core') !== -1 ? 'core' : 'web';
+		serviceType = serviceType || 'web';
 		html += '<div class="et-metric-item" onclick="showVersionModal(\'' + serviceType + '\')" style="cursor:pointer;">';
 		html += '<div class="et-metric-icon">' + createSVGIcon('version', versionInfo.match ? colors.getPropertyValue('--success').trim() : colors.getPropertyValue('--warning').trim()) + '</div>';
 		html += '<div class="et-metric-info">';
@@ -666,27 +695,64 @@ function renderService(name, data, isRunning) {
 	return html;
 }
 
+function renderSimpleService(name, data, isRunning) {
+	var html = '<div class="et-service-section' + (isRunning ? '' : ' service-stopped') + '">';
+	html += '<div class="et-service-header">';
+	html += '<div class="et-service-title">' + name + '</div>';
+	html += '<div class="et-status-badge ' + (isRunning ? 'et-status-running' : 'et-status-stopped') + '">';
+	html += '<span class="et-status-dot"></span>';
+	html += isRunning ? '<%=translate("Running")%>' : '<%=translate("Stopped")%>';
+	html += '</div></div>';
+	if (isRunning && data && data.description) {
+		html += '<div class="et-metrics-grid">';
+		html += '<div class="et-metric-item">';
+		html += '<div class="et-metric-info">';
+		html += '<div class="et-metric-label"><%=translate("Mode")%></div>';
+		html += '<div class="et-metric-value">' + data.description + '</div>';
+		html += '</div></div>';
+		html += '</div>';
+	}
+	html += '</div>';
+	return html;
+}
+
 function updateStatus(data) {
 	var container = document.getElementById('easytier_status');
 	if (!data || !container) return;
 	
 	var html = '';
-	html += renderService('EasyTier Core', {
+	html += renderService('<%=translate("EasyTier Core")%>', {
 		cpu: data.etcpu,
 		mem: data.etram,
 		uptime: data.etsta,
 		version: data.ettag,
 		latest: data.etnewtag
-	}, data.crunning);
+	}, data.local_core_running || (!data.webclient_core_running && data.crunning), 'core');
+
+	if (data.webclient_core_available) {
+		html += renderService('<%=translate("Web Console Managed Core")%>', {
+			cpu: data.etcpu,
+			mem: data.etram,
+			uptime: data.etsta,
+			version: data.ettag,
+			latest: data.etnewtag
+		}, data.webclient_core_running, 'core');
+	}
+
+	if (data.agent_available) {
+		html += renderSimpleService('<%=translate("EasyTier Agent")%>', {
+			description: '<%=translate("Policy executor and runtime reporter")%>'
+		}, data.agent_running);
+	}
 	
-	html += renderService('EasyTier Web', {
+	html += renderService('<%=translate("EasyTier Web")%>', {
 		cpu: data.etwebcpu,
 		mem: data.etwebram,
 		uptime: data.etwebsta,
 		version: data.etwebtag,
 		latest: data.etnewtag,
 		port: data.port
-	}, data.wrunning);
+	}, data.wrunning, 'web');
 	
 	container.innerHTML = html;
 }
@@ -712,6 +778,24 @@ function setControlsDisabled(disabled) {
 	document.getElementById('coreSwitch').disabled = disabled;
 	document.getElementById('webSwitch').disabled = disabled;
 	document.getElementById('restartBtn').disabled = disabled;
+	var webclientCoreSwitch = document.getElementById('webclientCoreSwitch');
+	var restartWebclientCoreBtn = document.getElementById('restartWebclientCoreBtn');
+	var agentSwitch = document.getElementById('agentSwitch');
+	var restartAgentBtn = document.getElementById('restartAgentBtn');
+	if (webclientCoreSwitch) webclientCoreSwitch.disabled = disabled;
+	if (restartWebclientCoreBtn) restartWebclientCoreBtn.disabled = disabled;
+	if (agentSwitch) agentSwitch.disabled = disabled;
+	if (restartAgentBtn) restartAgentBtn.disabled = disabled;
+}
+
+function applyServiceAvailability(data) {
+	var localCoreManaged = data && data.webclient_core_available && data.webclient_core_enabled;
+	var coreSwitch = document.getElementById('coreSwitch');
+	var restartBtn = document.getElementById('restartBtn');
+	var localCoreHint = document.getElementById('localCoreHint');
+	if (coreSwitch) coreSwitch.disabled = actionCooldown || localCoreManaged;
+	if (restartBtn) restartBtn.disabled = actionCooldown || localCoreManaged;
+	if (localCoreHint) localCoreHint.style.display = localCoreManaged ? '' : 'none';
 }
 
 var firstLoad = true;
@@ -786,6 +870,54 @@ function toggleCore(enabled) {
 	xhr.send();
 }
 
+function serviceAction(url, cooldownMs) {
+	if (firstLoad || actionCooldown) {
+		showToast('<%=translate("Please wait, operation in progress...")%>');
+		return;
+	}
+	actionCooldown = true;
+	setControlsDisabled(true);
+	var xhr = new XMLHttpRequest();
+	xhr.open('GET', url, true);
+	xhr.onload = function() {
+		setTimeout(function() {
+			actionCooldown = false;
+			setControlsDisabled(false);
+		}, cooldownMs || 3000);
+	};
+	xhr.onerror = function() {
+		setTimeout(function() {
+			actionCooldown = false;
+			setControlsDisabled(false);
+		}, cooldownMs || 3000);
+	};
+	xhr.send();
+}
+
+function restartWebclientCore() {
+	serviceAction('<%=url("admin", "vpn", "easytier", "restart_webclient_core")%>', 5000);
+}
+
+function toggleWebclientCore(enabled) {
+	if (firstLoad || actionCooldown) {
+		document.getElementById('webclientCoreSwitch').checked = !enabled;
+		return;
+	}
+	serviceAction('<%=url("admin", "vpn", "easytier", "toggle_webclient_core")%>?enabled=' + (enabled ? '1' : '0'), 3000);
+}
+
+function restartAgent() {
+	serviceAction('<%=url("admin", "vpn", "easytier", "restart_agent")%>', 5000);
+}
+
+function toggleAgent(enabled) {
+	if (firstLoad || actionCooldown) {
+		document.getElementById('agentSwitch').checked = !enabled;
+		return;
+	}
+	serviceAction('<%=url("admin", "vpn", "easytier", "toggle_agent")%>?enabled=' + (enabled ? '1' : '0'), 3000);
+}
+
 function toggleWeb(enabled) {
 	if (firstLoad || actionCooldown) {
 		document.getElementById('webSwitch').checked = !enabled;
@@ -826,6 +958,22 @@ document.getElementById('webSwitch').addEventListener('change', function() {
 		return;
 	}
 	toggleWeb(this.checked);
+});
+
+document.getElementById('webclientCoreSwitch').addEventListener('change', function() {
+	if (firstLoad) {
+		this.checked = !this.checked;
+		return;
+	}
+	toggleWebclientCore(this.checked);
+});
+
+document.getElementById('agentSwitch').addEventListener('change', function() {
+	if (firstLoad) {
+		this.checked = !this.checked;
+		return;
+	}
+	toggleAgent(this.checked);
 });
 
 var tunTrafficData = {
@@ -1077,20 +1225,29 @@ var firstLoad = true;
 XHR.poll(3, '<%=url("admin", "vpn", "easytier", "api_status")%>', null, function(x, data) {
 	updateStatus(data);
 	
-	updateTunInterface(data.crunning, data.no_tun, data.dev_name);
+	updateTunInterface(data.effective_core_running, data.no_tun, data.dev_name);
 	
 	// 使用配置值初始化开关状态
 	var coreSwitch = document.getElementById('coreSwitch');
 	var webSwitch = document.getElementById('webSwitch');
+	var webclientCoreSwitch = document.getElementById('webclientCoreSwitch');
+	var agentSwitch = document.getElementById('agentSwitch');
+	var webclientCoreAction = document.getElementById('webclientCoreAction');
+	var agentAction = document.getElementById('agentAction');
 	
 	coreSwitch.checked = data.cenabled;
 	webSwitch.checked = data.wenabled;
+	if (webclientCoreAction) webclientCoreAction.style.display = data.webclient_core_available ? '' : 'none';
+	if (agentAction) agentAction.style.display = data.agent_available ? '' : 'none';
+	if (webclientCoreSwitch) webclientCoreSwitch.checked = data.webclient_core_enabled;
+	if (agentSwitch) agentSwitch.checked = data.agent_enabled;
 	
 	// 首次加载完成后启用控件
 	if (firstLoad && !actionCooldown) {
 		setControlsDisabled(false);
 		firstLoad = false;
 	}
+	applyServiceAvailability(data);
 });
 //]]>
 </script>

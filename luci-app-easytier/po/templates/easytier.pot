@@ -1161,6 +1161,15 @@ msgstr ""
 msgid "EasyTier Core"
 msgstr ""
 
+msgid "Disabled while Web Console Managed Core is enabled"
+msgstr ""
+
+msgid "Web Console Managed Core"
+msgstr ""
+
+msgid "EasyTier Agent"
+msgstr ""
+
 msgid "EasyTier Web"
 msgstr ""
 
@@ -1209,6 +1218,12 @@ msgstr ""
 msgid "Version"
 msgstr ""
 
+msgid "Mode"
+msgstr ""
+
+msgid "Policy executor and runtime reporter"
+msgstr ""
+
 msgid "Refresh Version"
 msgstr ""
 
@@ -1240,6 +1255,9 @@ msgid "Quick Actions"
 msgstr ""
 
 msgid "Restart Service"
+msgstr ""
+
+msgid "Restart Local Core"
 msgstr ""
 
 msgid "Restart EasyTier service?"

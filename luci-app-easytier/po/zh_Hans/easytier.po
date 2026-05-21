@@ -1009,6 +1009,15 @@ msgstr "如果开启，则作为共享节点时也可以转发其他网络的 KC
 msgid "EasyTier Core"
 msgstr "EasyTier 配置"
 
+msgid "Disabled while Web Console Managed Core is enabled"
+msgstr "Web 控制台托管 Core 启用时禁用"
+
+msgid "Web Console Managed Core"
+msgstr "Web 控制台托管 Core"
+
+msgid "EasyTier Agent"
+msgstr "EasyTier Agent"
+
 msgid "EasyTier Web"
 msgstr "自建控制台"
 
@@ -1054,6 +1063,12 @@ msgstr "运行时长"
 msgid "Version"
 msgstr "版本"
 
+msgid "Mode"
+msgstr "模式"
+
+msgid "Policy executor and runtime reporter"
+msgstr "策略执行器和运行状态上报"
+
 msgid "Refresh Version"
 msgstr "刷新版本"
 
@@ -1083,6 +1098,9 @@ msgstr "快捷操作"
 
 msgid "Restart Service"
 msgstr "重启服务"
+
+msgid "Restart Local Core"
+msgstr "重启本地 Core"
 
 msgid "Restart EasyTier service?"
 msgstr "确认重启 EasyTier 服务？"

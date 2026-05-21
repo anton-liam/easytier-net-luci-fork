@@ -1,6 +1,7 @@
 
 module("luci.controller.easytier", package.seeall)
 local i18n = require "luci.i18n"
+local sys = require "luci.sys"
 
 -- 安全执行命令并返回结果
 local function safe_exec(cmd)
@@ -42,6 +43,27 @@ local function calc_uptime(start_time_file)
     return result
 end
 
+local function service_exists(name)
+	return sys.call("[ -x '/etc/init.d/" .. name .. "' ] >/dev/null 2>&1") == 0
+end
+
+local function service_running(name)
+	return service_exists(name) and sys.call("/etc/init.d/" .. name .. " status >/dev/null 2>&1") == 0
+end
+
+local function service_enabled(name)
+	return service_exists(name) and sys.call("/etc/init.d/" .. name .. " enabled >/dev/null 2>&1") == 0
+end
+
+local function set_uci_flag(config, section, stype, option, value)
+	local uci = require "luci.model.uci".cursor()
+	if not uci:get(config, section) then
+		uci:section(config, stype, section, {})
+	end
+	uci:set(config, section, option, value)
+	uci:commit(config)
+end
+
 function index()
 	if not nixio.fs.access("/etc/config/easytier") then
 		return
@@ -75,6 +97,10 @@ function index()
 	entry({"admin", "vpn", "easytier", "restart_service"}, call("restart_service")).leaf = true
 	entry({"admin", "vpn", "easytier", "toggle_core"}, call("toggle_core")).leaf = true
 	entry({"admin", "vpn", "easytier", "toggle_web"}, call("toggle_web")).leaf = true
+	entry({"admin", "vpn", "easytier", "restart_webclient_core"}, call("restart_webclient_core")).leaf = true
+	entry({"admin", "vpn", "easytier", "toggle_webclient_core"}, call("toggle_webclient_core")).leaf = true
+	entry({"admin", "vpn", "easytier", "restart_agent"}, call("restart_agent")).leaf = true
+	entry({"admin", "vpn", "easytier", "toggle_agent"}, call("toggle_agent")).leaf = true
 	entry({"admin", "vpn", "easytier", "download_easytier"}, call("download_easytier")).leaf = true
 	entry({"admin", "vpn", "easytier", "download_progress"}, call("download_progress")).leaf = true
 	entry({"admin", "vpn", "easytier", "cancel_download"}, call("cancel_download")).leaf = true
@@ -85,11 +111,19 @@ function act_status()
 	local sys  = require "luci.sys"
 	local uci  = require "luci.model.uci".cursor()
 	local port = tonumber(uci:get_first("easytier", "easytier", "web_html_port"))
+	e.local_core_running = service_running("easytier")
+	e.webclient_core_available = service_exists("easytier-core-webclient")
+	e.webclient_core_running = service_running("easytier-core-webclient")
+	e.agent_available = service_exists("easytier-agent")
+	e.agent_running = service_running("easytier-agent")
 	e.crunning = luci.sys.call("pgrep easytier-core >/dev/null") == 0
+	e.effective_core_running = e.crunning or e.local_core_running or e.webclient_core_running
 	e.wrunning = luci.sys.call("pgrep easytier-web >/dev/null") == 0
 	e.port = (port or 0)
 	e.cenabled = uci:get_first("easytier", "easytier", "enabled") == "1"
 	e.wenabled = uci:get_first("easytier", "easytier", "web_enabled") == "1"
+	e.webclient_core_enabled = (uci:get("easytier_webclient", "main", "enabled") == "1") or service_enabled("easytier-core-webclient")
+	e.agent_enabled = (uci:get("easytier_agent", "main", "enabled") == "1") or service_enabled("easytier-agent")
 	
 	-- 使用 Lua 原生计算运行时长
 	e.etsta = calc_uptime("/tmp/easytier_time")
@@ -856,6 +890,26 @@ function restart_service()
 	luci.http.write_json({success = true})
 end
 
+function restart_webclient_core()
+	luci.http.prepare_content("application/json")
+	if not service_exists("easytier-core-webclient") then
+		luci.http.write_json({success = false, message = "easytier-core-webclient service not found"})
+		return
+	end
+	luci.sys.exec("/etc/init.d/easytier-core-webclient restart >/dev/null 2>&1 &")
+	luci.http.write_json({success = true})
+end
+
+function restart_agent()
+	luci.http.prepare_content("application/json")
+	if not service_exists("easytier-agent") then
+		luci.http.write_json({success = false, message = "easytier-agent service not found"})
+		return
+	end
+	luci.sys.exec("/etc/init.d/easytier-agent restart >/dev/null 2>&1 &")
+	luci.http.write_json({success = true})
+end
+
 function toggle_core()
 	local enabled = luci.http.formvalue("enabled")
 	local uci = require "luci.model.uci".cursor()
@@ -865,9 +919,41 @@ function toggle_core()
 	if enabled == "1" then
 		luci.sys.exec("/etc/init.d/easytier start >/dev/null 2>&1 &")
 	else
-		luci.sys.exec("/etc/init.d/easytier restart >/dev/null 2>&1 &")
+		luci.sys.exec("/etc/init.d/easytier stop >/dev/null 2>&1 &")
 	end
 	luci.http.prepare_content("application/json")
+	luci.http.write_json({success = true})
+end
+
+function toggle_webclient_core()
+	local enabled = luci.http.formvalue("enabled") == "1" and "1" or "0"
+	luci.http.prepare_content("application/json")
+	if not service_exists("easytier-core-webclient") then
+		luci.http.write_json({success = false, message = "easytier-core-webclient service not found"})
+		return
+	end
+	set_uci_flag("easytier_webclient", "main", "easytier_webclient", "enabled", enabled)
+	if enabled == "1" then
+		luci.sys.exec("/etc/init.d/easytier-core-webclient enable >/dev/null 2>&1; /etc/init.d/easytier-core-webclient start >/dev/null 2>&1 &")
+	else
+		luci.sys.exec("/etc/init.d/easytier-core-webclient disable >/dev/null 2>&1; /etc/init.d/easytier-core-webclient stop >/dev/null 2>&1 &")
+	end
+	luci.http.write_json({success = true})
+end
+
+function toggle_agent()
+	local enabled = luci.http.formvalue("enabled") == "1" and "1" or "0"
+	luci.http.prepare_content("application/json")
+	if not service_exists("easytier-agent") then
+		luci.http.write_json({success = false, message = "easytier-agent service not found"})
+		return
+	end
+	set_uci_flag("easytier_agent", "main", "easytier_agent", "enabled", enabled)
+	if enabled == "1" then
+		luci.sys.exec("/etc/init.d/easytier-agent enable >/dev/null 2>&1; /etc/init.d/easytier-agent start >/dev/null 2>&1 &")
+	else
+		luci.sys.exec("/etc/init.d/easytier-agent disable >/dev/null 2>&1; /etc/init.d/easytier-agent stop >/dev/null 2>&1 &")
+	end
 	luci.http.write_json({success = true})
 end
 
